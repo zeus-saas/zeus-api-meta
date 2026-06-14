@@ -1,19 +1,17 @@
-import "dotenv/config";
+import { z } from 'zod';
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value && process.env.NODE_ENV === "production") {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value ?? "";
-}
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production']).default('development'),
+  PORT: z.string().default('3000'),
+  APP_ID: z.string(),
+  APP_SECRET: z.string(),
+  JWT_SECRET: z.string(),
+  DATABASE_URL: z.string(),
+  KIMI_AUTH_URL: z.string(),
+  KIMI_OPEN_URL: z.string(),
+  GOOGLE_CLIENT_ID: z.string(),
+  GOOGLE_CLIENT_SECRET: z.string(),
+  GOOGLE_CALLBACK_URL: z.string(),
+});
 
-export const env = {
-  appId: required("APP_ID"),
-  appSecret: required("APP_SECRET"),
-  isProduction: process.env.NODE_ENV === "production",
-  databaseUrl: required("DATABASE_URL"),
-  kimiAuthUrl: required("KIMI_AUTH_URL"),
-  kimiOpenUrl: required("KIMI_OPEN_URL"),
-  ownerUnionId: process.env.OWNER_UNION_ID ?? "",
-};
+export const env = envSchema.parse(process.env);
