@@ -3,14 +3,18 @@ import bcrypt from "bcryptjs";
 import speakeasy from "speakeasy";
 import QRCode from "qrcode";
 import * as jose from "jose";
-import { eq } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { createRouter, publicQuery } from "../middleware";
-import { getDb } from "../queries/connection";
-import { users } from "../../db/schema";
-import { findUserByEmail, findUserById, createUser, updateUser, updateUserMfa, updateLastSignIn } from "../queries/users";
+import { env } from "../lib/env";
+import { 
+  findUserByEmail, 
+  findUserById, 
+  createUser, 
+  updateUserMfa, 
+  updateLastSignIn 
+} from "../queries/users";
 
-// JWT Secret
-const JWT_SECRET = new TextEncoder().encode(process.env.APP_SECRET || "whatsapp-saas-secret-key-2024");
+const JWT_SECRET = new TextEncoder().encode(env.appSecret || "whatsapp-saas-secret-key-2024");
 
 async function signToken(payload: Record<string, any>): Promise<string> {
   return new jose.SignJWT(payload)
@@ -42,20 +46,29 @@ export const localAuthRouter = createRouter({
     .mutation(async ({ input }) => {
       const existing = await findUserByEmail(input.email);
       if (existing) {
-        throw new Error("Este email já está cadastrado");
+        throw new TRPCError({ code: "CONFLICT", message: "Este email já está cadastrado." });
       }
 
-      const passwordHash = await bcrypt.hash(input.password, 12);
-      const userId = await createUser({
-        name: input.name,
-        email: input.email,
-        passwordHash,
-        authProvider: "local",
-        role: "user",
-      });
+      try {
+        const passwordHash = await bcrypt.hash(input.password, 12);
+        const userId = await createUser({
+          name: input.name,
+          email: input.email,
+          passwordHash,
+          authProvider: "local",
+          role: "user",
+        });
 
-      const token = await signToken({ userId, email: input.email, type: "local" });
-      return { token, userId };
+        const token = await signToken({ userId, email: input.email, type: "local" });
+        return { token, userId };
+      } catch (error: any) {
+        // Agora, se o banco falhar, o erro exato sobe para a tela!
+        console.error("Erro interno ao criar usuário:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erro no banco de dados: ${error.message}`
+        });
+      }
     }),
 
   // Login com email/senha
@@ -69,19 +82,18 @@ export const localAuthRouter = createRouter({
     .mutation(async ({ input }) => {
       const user = await findUserByEmail(input.email);
       if (!user || !user.passwordHash) {
-        throw new Error("Email ou senha inválidos");
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Email ou senha inválidos" });
       }
 
       const valid = await bcrypt.compare(input.password, user.passwordHash);
       if (!valid) {
-        throw new Error("Email ou senha inválidos");
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Email ou senha inválidos" });
       }
 
       if (!user.isActive) {
-        throw new Error("Conta desativada. Entre em contato com o suporte.");
+        throw new TRPCError({ code: "FORBIDDEN", message: "Conta desativada. Entre em contato com o suporte." });
       }
 
-      // Se MFA estiver habilitado, retornar flag para verificação
       if (user.mfaEnabled) {
         const tempToken = await signToken({ 
           userId: user.id, 
@@ -103,7 +115,6 @@ export const localAuthRouter = createRouter({
       return { mfaRequired: false, token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
     }),
 
-  // Verificar MFA
   verifyMfa: publicQuery
     .input(
       z.object({
@@ -114,12 +125,12 @@ export const localAuthRouter = createRouter({
     .mutation(async ({ input }) => {
       const payload = await verifyToken(input.tempToken);
       if (!payload || payload.type !== "mfa_pending") {
-        throw new Error("Token inválido ou expirado");
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Token inválido ou expirado" });
       }
 
       const user = await findUserById(payload.userId as number);
       if (!user || !user.mfaSecret) {
-        throw new Error("Usuário não encontrado");
+        throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
       }
 
       const verified = speakeasy.totp.verify({
@@ -130,7 +141,7 @@ export const localAuthRouter = createRouter({
       });
 
       if (!verified) {
-        throw new Error("Código inválido");
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Código inválido" });
       }
 
       await updateLastSignIn(user.id);
@@ -144,33 +155,26 @@ export const localAuthRouter = createRouter({
       return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
     }),
 
-  // Configurar MFA
   setupMfa: publicQuery
     .input(z.object({ token: z.string() }))
     .query(async ({ input }) => {
       const payload = await verifyToken(input.token);
-      if (!payload) throw new Error("Token inválido");
+      if (!payload) throw new TRPCError({ code: "UNAUTHORIZED", message: "Token inválido" });
 
       const user = await findUserById(payload.userId as number);
-      if (!user) throw new Error("Usuário não encontrado");
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
 
       const secret = speakeasy.generateSecret({
         name: `WhatsCloud:${user.email}`,
         length: 32,
       });
 
-      // Salvar secret temporariamente (não ativa ainda)
       await updateUserMfa(user.id, secret.base32, false);
-
       const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url || "");
 
-      return {
-        secret: secret.base32,
-        qrCode: qrCodeUrl,
-      };
+      return { secret: secret.base32, qrCode: qrCodeUrl };
     }),
 
-  // Ativar MFA
   enableMfa: publicQuery
     .input(
       z.object({
@@ -180,10 +184,10 @@ export const localAuthRouter = createRouter({
     )
     .mutation(async ({ input }) => {
       const payload = await verifyToken(input.token);
-      if (!payload) throw new Error("Token inválido");
+      if (!payload) throw new TRPCError({ code: "UNAUTHORIZED", message: "Token inválido" });
 
       const user = await findUserById(payload.userId as number);
-      if (!user || !user.mfaSecret) throw new Error("Usuário não encontrado");
+      if (!user || !user.mfaSecret) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
 
       const verified = speakeasy.totp.verify({
         secret: user.mfaSecret,
@@ -192,13 +196,12 @@ export const localAuthRouter = createRouter({
         window: 2,
       });
 
-      if (!verified) throw new Error("Código inválido");
+      if (!verified) throw new TRPCError({ code: "UNAUTHORIZED", message: "Código inválido" });
 
       await updateUserMfa(user.id, user.mfaSecret, true);
       return { success: true };
     }),
 
-  // Desativar MFA
   disableMfa: publicQuery
     .input(
       z.object({
@@ -208,10 +211,10 @@ export const localAuthRouter = createRouter({
     )
     .mutation(async ({ input }) => {
       const payload = await verifyToken(input.token);
-      if (!payload) throw new Error("Token inválido");
+      if (!payload) throw new TRPCError({ code: "UNAUTHORIZED", message: "Token inválido" });
 
       const user = await findUserById(payload.userId as number);
-      if (!user || !user.mfaSecret) throw new Error("Usuário não encontrado");
+      if (!user || !user.mfaSecret) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
 
       const verified = speakeasy.totp.verify({
         secret: user.mfaSecret,
@@ -220,13 +223,12 @@ export const localAuthRouter = createRouter({
         window: 2,
       });
 
-      if (!verified) throw new Error("Código inválido");
+      if (!verified) throw new TRPCError({ code: "UNAUTHORIZED", message: "Código inválido" });
 
       await updateUserMfa(user.id, null, false);
       return { success: true };
     }),
 
-  // Me (autenticado via token JWT local)
   me: publicQuery
     .input(z.object({ token: z.string() }).optional())
     .query(async ({ input }) => {

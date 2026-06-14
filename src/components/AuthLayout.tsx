@@ -36,7 +36,7 @@ import {
   ChevronDown,
   type LucideIcon,
 } from "lucide-react";
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { AuthLayoutSkeleton } from "./AuthLayoutSkeleton";
 import { Button } from "./ui/button";
@@ -144,7 +144,6 @@ function AuthLayoutContent({
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find((item) => item.path === location.pathname);
   const isMobile = useIsMobile();
 
@@ -165,8 +164,9 @@ function AuthLayoutContent({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
-      const sidebarLeft = sidebarRef.current?.getBoundingClientRect().left ?? 0;
-      const newWidth = e.clientX - sidebarLeft;
+      // Como o menu fica colado no lado esquerdo da tela (0),
+      // a largura exata será a posição atual do mouse no eixo X.
+      const newWidth = e.clientX; 
       if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH) {
         setSidebarWidth(newWidth);
       }
@@ -193,107 +193,108 @@ function AuthLayoutContent({
 
   return (
     <>
-      <div className="relative" ref={sidebarRef}>
-        <Sidebar collapsible="icon" className="border-r-0">
-          <SidebarHeader className="h-16 justify-center">
-            <div className="flex items-center gap-3 px-2 transition-all w-full">
-              <button
-                onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
-                aria-label="Toggle navigation"
-              >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
-              </button>
-              {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-                    <MessageSquare className="h-4 w-4 text-primary-foreground" />
-                  </div>
-                  <span className="font-semibold tracking-tight truncate">
-                    WhatsCloud
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </SidebarHeader>
-
-          <SidebarContent className="gap-0">
-            <SidebarMenu className="px-2 py-1">
-              {filteredMenuItems.map((item) => {
-                const isActive = location.pathname === item.path;
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => navigate(item.path)}
-                      tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
-                    >
-                      <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
-                      />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarContent>
-
-          <SidebarFooter className="p-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium bg-primary/10 text-primary">
-                      {user?.name?.charAt(0).toUpperCase() || "U"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
-                      {user?.name || "-"}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
-                      {user?.email || "-"}
-                    </p>
-                  </div>
-                  <ChevronDown className="h-4 w-4 text-muted-foreground group-data-[collapsible=icon]:hidden" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Minha Conta</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate("/settings")} className="cursor-pointer">
-                  <Settings className="mr-2 h-4 w-4" />
-                  Configurações
-                </DropdownMenuItem>
-                {user.role === "saas_admin" && (
-                  <DropdownMenuItem onClick={() => navigate("/admin")} className="cursor-pointer">
-                    <Shield className="mr-2 h-4 w-4" />
-                    Administração
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sair
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarFooter>
-        </Sidebar>
+      <Sidebar collapsible="icon" className="border-r-0 relative">
+        
+        {/* Barrinha de redimensionamento colocada DENTRO do Sidebar */}
         <div
-          className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
-          onMouseDown={() => {
+          className={`absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary/20 transition-colors z-50 ${isCollapsed ? "hidden" : ""}`}
+          onMouseDown={(e) => {
             if (isCollapsed) return;
+            e.preventDefault();
             setIsResizing(true);
           }}
-          style={{ zIndex: 50 }}
         />
-      </div>
+
+        <SidebarHeader className="h-16 justify-center">
+          <div className="flex items-center gap-3 px-2 transition-all w-full">
+            <button
+              onClick={toggleSidebar}
+              className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
+              aria-label="Toggle navigation"
+            >
+              <PanelLeft className="h-4 w-4 text-muted-foreground" />
+            </button>
+            {!isCollapsed ? (
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
+                  <MessageSquare className="h-4 w-4 text-primary-foreground" />
+                </div>
+                <span className="font-semibold tracking-tight truncate">
+                  WhatsCloud
+                </span>
+              </div>
+            ) : null}
+          </div>
+        </SidebarHeader>
+
+        <SidebarContent className="gap-0">
+          <SidebarMenu className="px-2 py-1">
+            {filteredMenuItems.map((item) => {
+              const isActive = location.pathname === item.path;
+              return (
+                <SidebarMenuItem key={item.path}>
+                  <SidebarMenuButton
+                    isActive={isActive}
+                    onClick={() => navigate(item.path)}
+                    tooltip={item.label}
+                    className={`h-10 transition-all font-normal`}
+                  >
+                    <item.icon
+                      className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
+                    />
+                    <span>{item.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </SidebarContent>
+
+        <SidebarFooter className="p-3">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <Avatar className="h-9 w-9 border shrink-0">
+                  <AvatarFallback className="text-xs font-medium bg-primary/10 text-primary">
+                    {user?.name?.charAt(0).toUpperCase() || "U"}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
+                  <p className="text-sm font-medium truncate leading-none">
+                    {user?.name || "-"}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate mt-1.5">
+                    {user?.email || "-"}
+                  </p>
+                </div>
+                <ChevronDown className="h-4 w-4 text-muted-foreground group-data-[collapsible=icon]:hidden shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Minha Conta</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate("/settings")} className="cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" />
+                Configurações
+              </DropdownMenuItem>
+              {user.role === "saas_admin" && (
+                <DropdownMenuItem onClick={() => navigate("/admin")} className="cursor-pointer">
+                  <Shield className="mr-2 h-4 w-4" />
+                  Administração
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={logout}
+                className="cursor-pointer text-destructive focus:text-destructive"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Sair
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarFooter>
+      </Sidebar>
 
       <SidebarInset>
         {isMobile && (
@@ -310,7 +311,9 @@ function AuthLayoutContent({
             </div>
           </div>
         )}
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <main className="flex-1 p-4 md:p-6 w-full max-w-full overflow-x-hidden">
+          {children}
+        </main>
       </SidebarInset>
     </>
   );

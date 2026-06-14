@@ -13,40 +13,8 @@ import {
 } from "drizzle-orm/mysql-core";
 
 // ============================================================
-// USUÁRIOS E AUTENTICAÇÃO
-// ============================================================
-
-export const users = mysqlTable("users", {
-  id: serial("id").primaryKey(),
-  email: varchar("email", { length: 320 }).notNull().unique(),
-  passwordHash: varchar("password_hash", { length: 255 }),
-  name: varchar("name", { length: 255 }),
-  avatar: text("avatar"),
-  // Role global: saas_admin = dono da plataforma, user = usuário comum
-  role: mysqlEnum("role", ["saas_admin", "user"]).default("user").notNull(),
-  // Provedor de login: local (email/senha), google, microsoft
-  authProvider: mysqlEnum("auth_provider", ["local", "google", "microsoft"]).default("local").notNull(),
-  // ID externo para OAuth (google/microsoft)
-  externalId: varchar("external_id", { length: 255 }),
-  // MFA TOTP
-  mfaSecret: varchar("mfa_secret", { length: 255 }),
-  mfaEnabled: boolean("mfa_enabled").default(false).notNull(),
-  mfaVerified: boolean("mfa_verified").default(false).notNull(),
-  // Status
-  isActive: boolean("is_active").default(true).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .notNull()
-    .$onUpdate(() => new Date()),
-  lastSignInAt: timestamp("last_sign_in_at").defaultNow().notNull(),
-});
-
-export type User = typeof users.$inferSelect;
-export type InsertUser = typeof users.$inferInsert;
-
-// ============================================================
 // EMPRESAS (CLIENTES DO SAAS)
+// Declarada primeiro para podermos referenciá-la nos usuários
 // ============================================================
 
 export const companies = mysqlTable("companies", {
@@ -78,7 +46,42 @@ export type Company = typeof companies.$inferSelect;
 export type InsertCompany = typeof companies.$inferInsert;
 
 // ============================================================
-// VÍNCULO USUÁRIO-EMPRESA (PERMISSÕES NA EMPRESA)
+// USUÁRIOS E AUTENTICAÇÃO
+// ============================================================
+
+export const users = mysqlTable("users", {
+  id: serial("id").primaryKey(),
+  // Vínculo Direto: O usuário pertence obrigatoriamente a uma empresa
+  companyId: bigint("company_id", { mode: "number", unsigned: true }).references(() => companies.id),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  passwordHash: varchar("password_hash", { length: 255 }),
+  name: varchar("name", { length: 255 }),
+  avatar: text("avatar"),
+  // Role global: saas_admin = dono da plataforma, user = usuário comum
+  role: mysqlEnum("role", ["saas_admin", "user"]).default("user").notNull(),
+  // Provedor de login: local (email/senha), google, microsoft
+  authProvider: mysqlEnum("auth_provider", ["local", "google", "microsoft"]).default("local").notNull(),
+  // ID externo para OAuth (google/microsoft)
+  externalId: varchar("external_id", { length: 255 }),
+  // MFA TOTP
+  mfaSecret: varchar("mfa_secret", { length: 255 }),
+  mfaEnabled: boolean("mfa_enabled").default(false).notNull(),
+  mfaVerified: boolean("mfa_verified").default(false).notNull(),
+  // Status
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date()),
+  lastSignInAt: timestamp("last_sign_in_at").defaultNow().notNull(),
+});
+
+export type User = typeof users.$inferSelect;
+export type InsertUser = typeof users.$inferInsert;
+
+// ============================================================
+// VÍNCULO USUÁRIO-EMPRESA (PERMISSÕES MULTI-WORKSPACE Opcional)
 // ============================================================
 
 export const userCompanies = mysqlTable("user_companies", {
@@ -97,15 +100,29 @@ export type UserCompany = typeof userCompanies.$inferSelect;
 export type InsertUserCompany = typeof userCompanies.$inferInsert;
 
 // ============================================================
-// CONTATOS
+// CONTATOS (LEADS)
 // ============================================================
 
 export const contacts = mysqlTable("contacts", {
   id: serial("id").primaryKey(),
   companyId: bigint("company_id", { mode: "number", unsigned: true }).notNull(),
+  
+  // Informações Pessoais
   name: varchar("name", { length: 255 }).notNull(),
-  phone: varchar("phone", { length: 50 }).notNull(),
   email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 50 }).notNull(),
+  phone2: varchar("phone_2", { length: 50 }), // Telefone 2 (Opcional)
+  
+  // Informações Corporativas do Contato
+  company: varchar("contact_company_name", { length: 255 }), // Empresa onde o lead trabalha
+  cnpj: varchar("cnpj", { length: 50 }),
+  
+  // Origem e Rastreamento de Importação
+  source: varchar("source", { length: 255 }), // Ex: "Planilha Excel", "Landing Page", "Manual"
+  importedById: bigint("imported_by_id", { mode: "number", unsigned: true }).references(() => users.id), // Quem importou
+  importIp: varchar("import_ip", { length: 50 }), // IP de quem importou
+  importedAt: timestamp("imported_at").defaultNow(), // Data e Hora da importação
+  
   // Tags para segmentação
   tags: json("tags").$type<string[]>(),
   // Dados customizados (JSON)
@@ -115,6 +132,7 @@ export const contacts = mysqlTable("contacts", {
   // Opt-in LGPD
   optIn: boolean("opt_in").default(true).notNull(),
   optInDate: timestamp("opt_in_date").defaultNow().notNull(),
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

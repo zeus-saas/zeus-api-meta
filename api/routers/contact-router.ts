@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
+import { db } from "../../db/index";
+import { contacts } from "../../db/schema";
 import {
   listContacts,
   findContactById,
@@ -33,7 +35,12 @@ export const contactRouter = createRouter({
         companyId: z.number(),
         name: z.string().min(1),
         phone: z.string().min(8),
-        email: z.string().email().optional(),
+        phone2: z.string().optional(),
+        email: z.string().email().optional().or(z.literal("")),
+        company: z.string().optional(),
+        cnpj: z.string().optional(),
+        source: z.string().optional(),
+        importIp: z.string().optional(),
         tags: z.array(z.string()).optional(),
         customData: z.record(z.string()).optional(),
       })
@@ -57,7 +64,12 @@ export const contactRouter = createRouter({
         id: z.number(),
         name: z.string().optional(),
         phone: z.string().optional(),
-        email: z.string().email().optional(),
+        phone2: z.string().optional(),
+        email: z.string().email().optional().or(z.literal("")),
+        company: z.string().optional(),
+        cnpj: z.string().optional(),
+        source: z.string().optional(),
+        importIp: z.string().optional(),
         tags: z.array(z.string()).optional(),
         customData: z.record(z.string()).optional(),
         status: z.enum(["active", "inactive", "blocked"]).optional(),
@@ -82,7 +94,53 @@ export const contactRouter = createRouter({
       return countContacts(input.companyId);
     }),
 
-  // Listas
+  // ==========================================================
+  // ROTA NOVA: Importação em Massa (Excel)
+  // ==========================================================
+  bulkImport: publicQuery
+    .input(
+      z.object({
+        companyId: z.number(),
+        importedById: z.number().optional(), // ID do usuário que fez o upload
+        contacts: z.array(
+          z.object({
+            name: z.string().min(1),
+            phone: z.string().min(8),
+            phone2: z.string().optional(),
+            email: z.string().email().optional().or(z.literal("")),
+            company: z.string().optional(),
+            cnpj: z.string().optional(),
+            source: z.string().optional(),
+            importIp: z.string().optional(),
+          })
+        ),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const { companyId, importedById, contacts: contactsData } = input;
+
+      if (contactsData.length === 0) return { success: true, count: 0 };
+
+      // Prepara os dados brutos do Excel para o formato do Banco de Dados
+      const payload = contactsData.map((contact) => ({
+        ...contact,
+        companyId,
+        importedById: importedById || null,
+        status: "active" as const,
+        optIn: true,
+        optInDate: new Date(),
+        importedAt: new Date(),
+      }));
+
+      // Faz o insert nativo em lote utilizando o Drizzle ORM (Alta performance)
+      await db.insert(contacts).values(payload);
+
+      return { success: true, count: payload.length };
+    }),
+
+  // ==========================================================
+  // Listas de Segmentação
+  // ==========================================================
   listLists: publicQuery
     .input(z.object({ companyId: z.number() }))
     .query(async ({ input }) => {

@@ -12,6 +12,7 @@ export default defineConfig({
     inspectAttr(), react()],
   server: {
     port: 3000,
+    host: true, // ISSO É OBRIGATÓRIO PARA A PORTA PASSAR PELO DOCKER
   },
   resolve: {
     alias: {

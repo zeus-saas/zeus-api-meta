@@ -1,0 +1,38 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: zeus-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: zeus_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zeus-app
+    ports:
+      - "3000:3000"
+    volumes:
+      # Sincroniza o seu código atual com o código do Docker em tempo real
+      - .:/app
+      - /app/node_modules
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    # Este comando instala pacotes, sincroniza o schema do Drizzle com o MySQL e inicia o Vite
+    command: sh -c "npm install && npm run db:push && npm run dev"
+
+volumes:
+  mysql_data:
